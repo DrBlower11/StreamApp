@@ -14,11 +14,15 @@ jobs:
     
     - name: Build IPA
       run: |
+        set -euo pipefail
+        pwd
+        ls -la
+
         # Crea la struttura dell'app
         mkdir -p Payload/StreamHub.app
         
         # Crea Info.plist
-        cat > Payload/StreamHub.app/Info.plist << 'PLISTEOF'
+        cat > Payload/StreamHub.app/Info.plist <<- 'PLISTEOF'
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
         <plist version="1.0">
@@ -63,12 +67,11 @@ jobs:
         swiftc -o Payload/StreamHub.app/StreamHub \
             -sdk $(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || echo /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk) \
             -target arm64-apple-ios16.0 \
-            -parse-as-library \
             -framework SwiftUI -framework WebKit \
             ios/StreamHubApp.swift
         
-        # Crea entitlments per firma ad-hoc
-        cat > entitlements.plist << 'ENTEOF'
+        # Crea entitlements per firma ad-hoc
+        cat > entitlements.plist <<- 'ENTEOF'
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
         <plist version="1.0">
@@ -85,6 +88,8 @@ jobs:
         
         # Crea IPA
         zip -r StreamHub.ipa Payload
+        ls -la StreamHub.ipa
+        if [ -f StreamHub.ipa ]; then echo "IPA created"; else echo "IPA missing"; exit 1; fi
         
     - name: Upload IPA
       uses: actions/upload-artifact@v5
