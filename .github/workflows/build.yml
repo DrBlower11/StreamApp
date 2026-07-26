@@ -15,121 +15,45 @@ jobs:
     - name: Build IPA
       run: |
         set -euo pipefail
-        pwd
-        ls -la
 
-        # Crea la struttura dell'app
+        # Crea struttura
         mkdir -p Payload/StreamHub.app
 
-        # Crea Info.plist
-        cat > Payload/StreamHub.app/Info.plist <<'PLISTEOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleDevelopmentRegion</key>
-    <string>it</string>
-    <key>CFBundleDisplayName</key>
-    <string>StreamHub</string>
-    <key>CFBundleExecutable</key>
-    <string>StreamHub</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.streamhub.app</string>
-    <key>CFBundleInfoDictionaryVersion</key>
-    <string>6.0</string>
-    <key>CFBundleName</key>
-    <string>StreamHub</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
-    <key>CFBundleVersion</key>
-    <string>1</string>
-    <key>LSRequiresIPhoneOS</key>
-    <true/>
-    <key>UIRequiredDeviceCapabilities</key>
-    <array>
-        <string>arm64</string>
-    </array>
-    <key>UIDeviceFamily</key>
-    <array>
-        <integer>1</integer>
-        <integer>2</integer>
-    </array>
-    <key>CFBundleSupportedPlatforms</key>
-    <array>
-        <string>iPhoneOS</string>
-    </array>
-    <key>MinimumOSVersion</key>
-    <string>16.0</string>
-    <key>UISupportedInterfaceOrientations</key>
-    <array>
-        <string>UIInterfaceOrientationPortrait</string>
-        <string>UIInterfaceOrientationLandscapeLeft</string>
-        <string>UIInterfaceOrientationLandscapeRight</string>
-    </array>
-</dict>
-</plist>
-PLISTEOF
+        # Copia Info.plist dal repo (evita problemi YAML con heredoc)
+        cp ios/Info.plist Payload/StreamHub.app/Info.plist
+        plutil -lint Payload/StreamHub.app/Info.plist
 
-        # Compila il binario Swift
-        SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || echo /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk)
-        echo "Using SDK_PATH=$SDK_PATH"
-        if [ ! -d "$SDK_PATH" ]; then
-          echo "SDK path not found: $SDK_PATH"
-          exit 1
-        fi
+        # Compila
+        SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+        echo "SDK: $SDK_PATH"
 
-        if ! xcrun --sdk iphoneos swiftc \
-            -o Payload/StreamHub.app/StreamHub \
-            -sdk "$SDK_PATH" \
-            -target arm64-apple-ios16.0 \
-            -parse-as-library \
-            -framework SwiftUI \
-            -framework WebKit \
-            ios/StreamHubApp.swift; then
-          echo "swiftc build failed"
-          exit 1
-        fi
+        xcrun --sdk iphoneos swiftc \
+          -o Payload/StreamHub.app/StreamHub \
+          -sdk "$SDK_PATH" \
+          -target arm64-apple-ios16.0 \
+          -parse-as-library \
+          -framework SwiftUI \
+          -framework WebKit \
+          ios/StreamHubApp.swift
 
         chmod +x Payload/StreamHub.app/StreamHub
-        echo "--- Binario compilato ---"
-        file Payload/StreamHub.app/StreamHub || true
-        plutil -lint Payload/StreamHub.app/Info.plist
+        file Payload/StreamHub.app/StreamHub
 
         # PkgInfo (8 byte esatti)
         printf 'APPL????' > Payload/StreamHub.app/PkgInfo
-        echo "PkgInfo size: $(wc -c < Payload/StreamHub.app/PkgInfo) byte (atteso: 8)"
 
-        # === FIRMA AD-HOC ===
-        # Necessaria affinché Sideloadly possa leggere gli entitlements
-        # e re-firmare correttamente l'app. Senza firma l'IPA viene
-        # rifiutato con "Invalid file" (Guru Meditation).
-        echo "--- Firma ad-hoc binario ---"
+        # Firma ad-hoc (obbligatoria per Sideloadly)
         codesign --force --sign - Payload/StreamHub.app/StreamHub
-        echo "--- Firma ad-hoc bundle ---"
         codesign --force --deep --sign - Payload/StreamHub.app
-        echo "--- Verifica firma ---"
-        codesign --verify --verbose Payload/StreamHub.app || true
-        codesign -d --entitlements :- Payload/StreamHub.app 2>/dev/null || echo "(nessun entitlement custom — OK per free account)"
+        codesign --verify --verbose Payload/StreamHub.app
 
-        # Struttura finale prima del packaging
-        echo "--- Struttura Payload ---"
+        # Struttura finale
         find Payload -maxdepth 3 | sort
 
         # Crea IPA
         ditto -c -k --keepParent Payload StreamHub.ipa
-
-        # Verifica IPA
-        if [ ! -f StreamHub.ipa ]; then
-          echo "ERRORE: IPA non creato"
-          exit 1
-        fi
-        echo "--- Contenuto IPA ---"
-        unzip -t StreamHub.ipa
-        unzip -l StreamHub.ipa | head -40
         ls -lh StreamHub.ipa
-        echo "IPA creato con successo"
+        unzip -t StreamHub.ipa
 
     - name: Upload IPA
       uses: actions/upload-artifact@v4
