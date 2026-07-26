@@ -74,6 +74,7 @@ PLISTEOF
         if ! swiftc -o Payload/StreamHub.app/StreamHub \
             -sdk "$SDK_PATH" \
             -target arm64-apple-ios16.0 \
+            -parse-as-library \
             -framework SwiftUI -framework WebKit \
             ios/StreamHubApp.swift; then
           echo "swiftc build failed, creating fallback executable"
