@@ -95,7 +95,10 @@ struct ContentView: View {
             }
             .fullScreenCover(isPresented: $showBrowser) {
                 if let url = selectedURL {
-                    BrowserView(url: url, siteName: sitesVM.sites.first(where: { $0.url == url })?.name ?? "")
+                    BrowserView(
+                        url: url,
+                        siteName: sitesVM.sites.first(where: { $0.url == url })?.name ?? ""
+                    )
                 }
             }
             .sheet(isPresented: $showFavorites) {
@@ -254,7 +257,11 @@ struct SiteCard: View {
         Button(action: onTap) {
             HStack(spacing: 14) {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(LinearGradient(colors: [Color.blue.opacity(0.6), Color.purple.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .fill(LinearGradient(
+                        colors: [Color.blue.opacity(0.6), Color.purple.opacity(0.4)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ))
                     .frame(width: 50, height: 50)
                     .overlay(Text("🎬").font(.title2))
                 
@@ -381,39 +388,57 @@ struct AddSiteView: View {
     }
 }
 
-// MARK: - Browser View
+// MARK: - Browser View (fullscreen con controlli flottanti)
 struct BrowserView: View {
     let url: URL
     let siteName: String
     @Environment(\.dismiss) var dismiss
-    @StateObject private var sitesVM = SitesViewModel()
     
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                WebViewWrapper(url: url)
-            }
-            .navigationTitle(siteName)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(action: { dismiss() }) {
-                        HStack {
-                            Image(systemName: "chevron.left")
-                            Text("Indietro")
-                        }
-                    }
+        ZStack(alignment: .top) {
+            // WebView a tutto schermo
+            WebViewWrapper(url: url)
+                .ignoresSafeArea()
+            
+            // Barra flottante semitrasparente
+            HStack {
+                Button(action: { dismiss() }) {
+                    Image(systemName: "chevron.left.circle.fill")
+                        .font(.system(size: 32))
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.7), radius: 6, x: 0, y: 2)
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: {
-                        UIApplication.shared.open(url)
-                    }) {
-                        Image(systemName: "safari")
-                    }
+                
+                Spacer()
+                
+                Text(siteName)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white)
+                    .shadow(color: .black.opacity(0.7), radius: 4, x: 0, y: 1)
+                    .lineLimit(1)
+                
+                Spacer()
+                
+                Button(action: { UIApplication.shared.open(url) }) {
+                    Image(systemName: "safari.fill")
+                        .font(.system(size: 26))
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.7), radius: 6, x: 0, y: 2)
                 }
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 56)   // sotto Dynamic Island / notch
+            .padding(.bottom, 12)
+            .background(
+                LinearGradient(
+                    colors: [Color.black.opacity(0.55), Color.clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
+            )
         }
+        .ignoresSafeArea()
         .preferredColorScheme(.dark)
     }
 }
@@ -425,6 +450,7 @@ struct WebViewWrapper: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
+        config.mediaTypesRequiringUserActionForPlayback = []
         config.preferences.javaScriptEnabled = true
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.isOpaque = false
@@ -467,7 +493,9 @@ struct FavoritesView: View {
                                     }
                                 }
                             }
-                            .swipeActions { Button("Rimuovi") { sitesVM.removeFavorite(at: index) }.tint(.red) }
+                            .swipeActions {
+                                Button("Rimuovi") { sitesVM.removeFavorite(at: index) }.tint(.red)
+                            }
                         }
                     }
                     .listStyle(.plain)
@@ -476,7 +504,11 @@ struct FavoritesView: View {
             }
             .navigationTitle("Preferiti")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Chiudi") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Chiudi") { dismiss() }
+                }
+            }
         }
         .preferredColorScheme(.dark)
     }
@@ -518,7 +550,11 @@ struct HistoryView: View {
             }
             .navigationTitle("Cronologia")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Chiudi") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Chiudi") { dismiss() }
+                }
+            }
         }
         .preferredColorScheme(.dark)
     }
