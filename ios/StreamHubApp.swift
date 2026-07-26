@@ -388,80 +388,132 @@ struct AddSiteView: View {
     }
 }
 
-// MARK: - Browser View (fullscreen con controlli flottanti)
+// MARK: - Browser View
 struct BrowserView: View {
     let url: URL
     let siteName: String
     @Environment(\.dismiss) var dismiss
-    
+
     var body: some View {
-        ZStack(alignment: .top) {
-            // WebView a tutto schermo
-            WebViewWrapper(url: url)
-                .ignoresSafeArea()
-            
-            // Barra flottante semitrasparente
-            HStack {
-                Button(action: { dismiss() }) {
-                    Image(systemName: "chevron.left.circle.fill")
-                        .font(.system(size: 32))
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.7), radius: 6, x: 0, y: 2)
-                }
-                
-                Spacer()
-                
-                Text(siteName)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
-                    .shadow(color: .black.opacity(0.7), radius: 4, x: 0, y: 1)
-                    .lineLimit(1)
-                
-                Spacer()
-                
-                Button(action: { UIApplication.shared.open(url) }) {
-                    Image(systemName: "safari.fill")
-                        .font(.system(size: 26))
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.7), radius: 6, x: 0, y: 2)
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 56)   // sotto Dynamic Island / notch
-            .padding(.bottom, 12)
-            .background(
-                LinearGradient(
-                    colors: [Color.black.opacity(0.55), Color.clear],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
-            )
-        }
-        .ignoresSafeArea()
-        .preferredColorScheme(.dark)
+        FullScreenWebView(url: url, siteName: siteName, onDismiss: { dismiss() })
+            .ignoresSafeArea()
     }
 }
 
-// MARK: - WebView Wrapper
-struct WebViewWrapper: UIViewRepresentable {
+// MARK: - FullScreen Web View (UIViewControllerRepresentable)
+struct FullScreenWebView: UIViewControllerRepresentable {
     let url: URL
-    
-    func makeUIView(context: Context) -> WKWebView {
+    let siteName: String
+    let onDismiss: () -> Void
+
+    func makeUIViewController(context: Context) -> WebViewController {
+        WebViewController(url: url, siteName: siteName, onDismiss: onDismiss)
+    }
+
+    func updateUIViewController(_ vc: WebViewController, context: Context) {}
+}
+
+class WebViewController: UIViewController {
+    private let url: URL
+    private let siteName: String
+    private let onDismiss: () -> Void
+    private var webView: WKWebView!
+
+    init(url: URL, siteName: String, onDismiss: @escaping () -> Void) {
+        self.url = url
+        self.siteName = siteName
+        self.onDismiss = onDismiss
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+
+        // WebView
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
         config.preferences.javaScriptEnabled = true
-        let webView = WKWebView(frame: .zero, configuration: config)
-        webView.isOpaque = false
+
+        webView = WKWebView(frame: .zero, configuration: config)
         webView.backgroundColor = .black
+        webView.isOpaque = false
         webView.scrollView.backgroundColor = .black
         webView.scrollView.contentInsetAdjustmentBehavior = .never
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(webView)
+
+        // WebView a tutto schermo — agganciato ai bordi del UIViewController (non safe area)
+        NSLayoutConstraint.activate([
+            webView.topAnchor.constraint(equalTo: view.topAnchor),
+            webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+        ])
+
         webView.load(URLRequest(url: url))
-        return webView
+
+        // Gradiente scuro in cima
+        let gradientView = UIView()
+        gradientView.translatesAutoresizingMaskIntoConstraints = false
+        gradientView.isUserInteractionEnabled = false
+        view.addSubview(gradientView)
+        NSLayoutConstraint.activate([
+            gradientView.topAnchor.constraint(equalTo: view.topAnchor),
+            gradientView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            gradientView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            gradientView.heightAnchor.constraint(equalToConstant: 110)
+        ])
+        let gradient = CAGradientLayer()
+        gradient.colors = [UIColor.black.withAlphaComponent(0.65).cgColor, UIColor.clear.cgColor]
+        gradient.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 110)
+        gradientView.layer.addSublayer(gradient)
+
+        // Safe area top (Dynamic Island / notch)
+        let topPad = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?.windows.first?.safeAreaInsets.top ?? 47
+
+        // Bottone indietro
+        let backBtn = UIButton(type: .system)
+        backBtn.setImage(
+            UIImage(systemName: "chevron.left.circle.fill",
+                    withConfiguration: UIImage.SymbolConfiguration(pointSize: 30)),
+            for: .normal
+        )
+        backBtn.tintColor = .white
+        backBtn.translatesAutoresizingMaskIntoConstraints = false
+        backBtn.addTarget(self, action: #selector(dismissTapped), for: .touchUpInside)
+        view.addSubview(backBtn)
+
+        // Bottone Safari
+        let safariBtn = UIButton(type: .system)
+        safariBtn.setImage(
+            UIImage(systemName: "safari.fill",
+                    withConfiguration: UIImage.SymbolConfiguration(pointSize: 26)),
+            for: .normal
+        )
+        safariBtn.tintColor = .white
+        safariBtn.translatesAutoresizingMaskIntoConstraints = false
+        safariBtn.addTarget(self, action: #selector(openSafari), for: .touchUpInside)
+        view.addSubview(safariBtn)
+
+        NSLayoutConstraint.activate([
+            backBtn.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            backBtn.topAnchor.constraint(equalTo: view.topAnchor, constant: topPad + 8),
+            safariBtn.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            safariBtn.topAnchor.constraint(equalTo: view.topAnchor, constant: topPad + 10)
+        ])
     }
-    
-    func updateUIView(_ webView: WKWebView, context: Context) {}
+
+    @objc private func dismissTapped() { onDismiss() }
+    @objc private func openSafari() { UIApplication.shared.open(url) }
+
+    override var prefersStatusBarHidden: Bool { false }
+    override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
 }
 
 // MARK: - Favorites View
