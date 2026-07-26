@@ -18,7 +18,7 @@ jobs:
         mkdir -p Payload/StreamHub.app
         
         # Crea Info.plist
-        cat > Payload/StreamHub.app/Info.plist << 'EOF'
+        cat > Payload/StreamHub.app/Info.plist << 'PLISTEOF'
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
         <plist version="1.0">
@@ -57,24 +57,35 @@ jobs:
             </array>
         </dict>
         </plist>
-        EOF
+        PLISTEOF
         
         # Compila il binario Swift
         swiftc -o Payload/StreamHub.app/StreamHub \
             -sdk $(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || echo /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk) \
             -target arm64-apple-ios16.0 \
+            -parse-as-library \
             -framework SwiftUI -framework WebKit \
             ios/StreamHubApp.swift
         
-        # Firma ad-hoc (Sideloadly rifirma dopo)
-        codesign -s - --entitlements <(echo '<?xml version="1.0" encoding="UTF-8"?>
+        # Crea entitlments per firma ad-hoc
+        cat > entitlements.plist << 'ENTEOF'
+        <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0"><dict><key>com.apple.security.get-task-allow</key><true/></dict></plist>') \
+        <plist version="1.0">
+        <dict>
+            <key>com.apple.security.get-task-allow</key>
+            <true/>
+        </dict>
+        </plist>
+        ENTEOf
+        
+        # Firma ad-hoc (Sideloadly rifirma dopo)
+        codesign -s - --entitlements entitlements.plist \
             Payload/StreamHub.app/StreamHub
         
         # Crea IPA
         zip -r StreamHub.ipa Payload
-    
+        
     - name: Upload IPA
       uses: actions/upload-artifact@v4
       with:
