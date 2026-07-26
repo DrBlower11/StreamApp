@@ -89,7 +89,14 @@ jobs:
           echo "swiftc build failed"
           exit 1
         fi
-
+Sideloadly version 0.60, Windows 10.0, amd64
+App successfully prepared for auto-refresh
+Using IPA file: C:\Users\Alessandro\AppData\Local\cache\sideloadly\1c4c7db003b322a8f5aa4c9720c59784.ipa: 1c4c7db003b322a8f5aa4c9720c59784
+Will use Local Anisette (iTunes Anisette)
+Checking iOS version...
+iOS version 26.5, will mangle bundleID
+Prefetching Anisette...
+Sideloadly will be shown in your Apple ID as PC running Windows 10.0(0,0) with serial number DESKTOP-VHA78RR
         chmod +x Payload/StreamHub.app/StreamHub
         file Payload/StreamHub.app/StreamHub || true
         plutil -lint Payload/StreamHub.app/Info.plist || true
@@ -100,13 +107,15 @@ jobs:
         pushd Payload
         find . -maxdepth 2 | sort
         popd
-        zip -r StreamHub.ipa Payload
+        ditto -c -k --keepParent Payload StreamHub.ipa
         ls -la StreamHub.ipa Payload/StreamHub.app
         if [ ! -f StreamHub.ipa ]; then
           echo "IPA not created"
           exit 1
         fi
+        unzip -t StreamHub.ipa
         unzip -l StreamHub.ipa | head -40
+        file StreamHub.ipa || true
         ls -la Payload/StreamHub.app/StreamHub
         file Payload/StreamHub.app/StreamHub || true
         if [ -f StreamHub.ipa ]; then echo "IPA created"; else echo "IPA missing"; exit 1; fi
