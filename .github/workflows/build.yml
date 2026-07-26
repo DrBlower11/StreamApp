@@ -8,10 +8,10 @@ on:
 jobs:
   build:
     runs-on: macos-latest
-    
+
     steps:
-    - uses: actions/checkout@v5
-    
+    - uses: actions/checkout@v4
+
     - name: Build IPA
       run: |
         set -euo pipefail
@@ -80,40 +80,59 @@ PLISTEOF
           exit 1
         fi
 
-        if ! xcrun --sdk iphoneos swiftc -o Payload/StreamHub.app/StreamHub \
+        if ! xcrun --sdk iphoneos swiftc \
+            -o Payload/StreamHub.app/StreamHub \
             -sdk "$SDK_PATH" \
             -target arm64-apple-ios16.0 \
             -parse-as-library \
-            -framework SwiftUI -framework WebKit \
+            -framework SwiftUI \
+            -framework WebKit \
             ios/StreamHubApp.swift; then
           echo "swiftc build failed"
           exit 1
         fi
+
         chmod +x Payload/StreamHub.app/StreamHub
+        echo "--- Binario compilato ---"
         file Payload/StreamHub.app/StreamHub || true
         plutil -lint Payload/StreamHub.app/Info.plist
 
+        # PkgInfo (8 byte esatti)
         printf 'APPL????' > Payload/StreamHub.app/PkgInfo
+        echo "PkgInfo size: $(wc -c < Payload/StreamHub.app/PkgInfo) byte (atteso: 8)"
+
+        # === FIRMA AD-HOC ===
+        # Necessaria affinché Sideloadly possa leggere gli entitlements
+        # e re-firmare correttamente l'app. Senza firma l'IPA viene
+        # rifiutato con "Invalid file" (Guru Meditation).
+        echo "--- Firma ad-hoc binario ---"
+        codesign --force --sign - Payload/StreamHub.app/StreamHub
+        echo "--- Firma ad-hoc bundle ---"
+        codesign --force --deep --sign - Payload/StreamHub.app
+        echo "--- Verifica firma ---"
+        codesign --verify --verbose Payload/StreamHub.app || true
+        codesign -d --entitlements :- Payload/StreamHub.app 2>/dev/null || echo "(nessun entitlement custom — OK per free account)"
+
+        # Struttura finale prima del packaging
+        echo "--- Struttura Payload ---"
+        find Payload -maxdepth 3 | sort
 
         # Crea IPA
-        pushd Payload
-        find . -maxdepth 2 | sort
-        popd
         ditto -c -k --keepParent Payload StreamHub.ipa
-        ls -la StreamHub.ipa Payload/StreamHub.app
+
+        # Verifica IPA
         if [ ! -f StreamHub.ipa ]; then
-          echo "IPA not created"
+          echo "ERRORE: IPA non creato"
           exit 1
         fi
+        echo "--- Contenuto IPA ---"
         unzip -t StreamHub.ipa
         unzip -l StreamHub.ipa | head -40
-        file StreamHub.ipa || true
-        ls -la Payload/StreamHub.app/StreamHub
-        file Payload/StreamHub.app/StreamHub || true
-        if [ -f StreamHub.ipa ]; then echo "IPA created"; else echo "IPA missing"; exit 1; fi
-        
+        ls -lh StreamHub.ipa
+        echo "IPA creato con successo"
+
     - name: Upload IPA
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v4
       with:
         name: StreamHub.ipa
         path: StreamHub.ipa
