@@ -81,7 +81,7 @@ jobs:
           cat > Payload/StreamHub.app/StreamHub <<'FALLBACK'
             #!/bin/sh
             printf 'StreamHub placeholder app\n'
-            FALLBACK
+          FALLBACK
           chmod +x Payload/StreamHub.app/StreamHub
         fi
 
@@ -95,7 +95,7 @@ jobs:
                 <true/>
             </dict>
             </plist>
-            ENTEOF
+        ENTEOF
 
         # Firma ad-hoc (Sideloadly rifirma dopo)
         codesign -s - --entitlements entitlements.plist \
