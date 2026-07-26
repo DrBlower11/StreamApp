@@ -90,16 +90,25 @@ jobs:
           exit 1
         fi
 
+        chmod +x Payload/StreamHub.app/StreamHub
+        file Payload/StreamHub.app/StreamHub || true
+        plutil -lint Payload/StreamHub.app/Info.plist || true
+
         printf 'APPL????' > Payload/StreamHub.app/PkgInfo
 
         # Crea IPA
+        pushd Payload
+        find . -maxdepth 2 | sort
+        popd
         zip -r StreamHub.ipa Payload
         ls -la StreamHub.ipa Payload/StreamHub.app
         if [ ! -f StreamHub.ipa ]; then
           echo "IPA not created"
           exit 1
         fi
-        ls -la StreamHub.ipa
+        unzip -l StreamHub.ipa | head -40
+        ls -la Payload/StreamHub.app/StreamHub
+        file Payload/StreamHub.app/StreamHub || true
         if [ -f StreamHub.ipa ]; then echo "IPA created"; else echo "IPA missing"; exit 1; fi
         
     - name: Upload IPA
