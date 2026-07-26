@@ -2,12 +2,20 @@
 const STORAGE_KEY = 'streamhub_data';
 
 function loadData() {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : { sites: [], favorites: [], history: [] };
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : { sites: [], favorites: [], history: [] };
+    } catch (e) {
+        return { sites: [], favorites: [], history: [] };
+    }
 }
 
 function saveData(data) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch (e) {
+        alert('Spazio di archiviazione pieno. Libera spazio e riprova.');
+    }
 }
 
 let data = loadData();
@@ -17,6 +25,8 @@ function renderSites() {
     const list = document.getElementById('siteList');
     const empty = document.getElementById('emptyState');
     
+    if (!list || !empty) return;
+    
     if (data.sites.length === 0) {
         list.innerHTML = '';
         empty.style.display = 'block';
@@ -25,39 +35,63 @@ function renderSites() {
     
     empty.style.display = 'none';
     list.innerHTML = data.sites.map((site, index) => `
-        <div class="site-card" onclick="openSite('${site.url}', '${site.name}')">
+        <div class="site-card" onclick="openSite('${escapeHTML(site.url)}', '${escapeHTML(site.name)}')">
             <div class="site-icon">🎬</div>
             <div class="site-info">
-                <div class="site-name">${site.name}</div>
-                <div class="site-url">${site.url.replace('https://', '').replace('http://', '').split('/')[0]}</div>
+                <div class="site-name">${escapeHTML(site.name)}</div>
+                <div class="site-url">${escapeHTML(site.url.replace('https://', '').replace('http://', '').split('/')[0])}</div>
             </div>
             <div class="site-actions" onclick="event.stopPropagation()">
-                <button class="btn-sm btn-del" onclick="deleteSite(${index})">✕</button>
+                <button class="btn-sm btn-del" onclick="deleteSite(${index})" title="Elimina">✕</button>
             </div>
         </div>
     `).join('');
 }
 
+function escapeHTML(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
 // ── Aggiungi sito ────────────────────────────────────────
 function showAddSite() {
-    document.getElementById('addModal').style.display = 'flex';
-    document.getElementById('siteName').focus();
+    const modal = document.getElementById('addModal');
+    if (modal) {
+        modal.style.display = 'flex';
+        setTimeout(() => {
+            const input = document.getElementById('siteName');
+            if (input) input.focus();
+        }, 100);
+    }
 }
 
 function hideAddSite() {
-    document.getElementById('addModal').style.display = 'none';
-    document.getElementById('siteName').value = '';
-    document.getElementById('siteUrl').value = '';
+    const modal = document.getElementById('addModal');
+    if (modal) modal.style.display = 'none';
+    const nameInput = document.getElementById('siteName');
+    const urlInput = document.getElementById('siteUrl');
+    if (nameInput) nameInput.value = '';
+    if (urlInput) urlInput.value = '';
 }
 
 function addSite() {
-    const name = document.getElementById('siteName').value.trim();
-    let url = document.getElementById('siteUrl').value.trim();
+    const nameInput = document.getElementById('siteName');
+    const urlInput = document.getElementById('siteUrl');
+    if (!nameInput || !urlInput) return;
     
-    if (!name || !url) return alert('Inserisci nome e URL');
+    const name = nameInput.value.trim();
+    let url = urlInput.value.trim();
+    
+    if (!name) return alert('Inserisci il nome del sito');
+    if (!url) return alert('Inserisci l\'URL del sito');
     
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
         url = 'https://' + url;
+    }
+    
+    if (data.sites.some(s => s.url === url)) {
+        return alert('Questo URL è già stato aggiunto');
     }
     
     data.sites.push({ name, url });
@@ -67,58 +101,107 @@ function addSite() {
 }
 
 function deleteSite(index) {
-    if (confirm('Eliminare questo sito?')) {
+    const site = data.sites[index];
+    if (!site) return;
+    if (confirm('Eliminare "' + site.name + '"?')) {
         data.sites.splice(index, 1);
         saveData(data);
         renderSites();
     }
 }
 
-// ── Browser ──────────────────────────────────────────────
+// ── Apri sito (navigazione diretta, funziona sempre) ─────
 let currentSite = null;
 
 function openSite(url, name) {
     currentSite = { url, name };
     
-    document.getElementById('browser').style.display = 'flex';
-    document.getElementById('browserTitle').textContent = name;
-    document.getElementById('browserLoading').style.display = 'block';
-    
-    // Aggiorna icona preferito
-    updateFavIcon();
-    
-    // Aggiungi alla cronologia
-    data.history.unshift({ name, url, time: new Date().toISOString() });
-    if (data.history.length > 50) data.history.pop();
+    data.history.unshift({ 
+        name: name, 
+        url: url, 
+        time: new Date().toLocaleString('it-IT') 
+    });
+    if (data.history.length > 100) data.history.length = 100;
     saveData(data);
     
-    const frame = document.getElementById('browserFrame');
-    frame.src = url;
-    
-    frame.onload = () => {
-        document.getElementById('browserLoading').style.display = 'none';
-    };
-    
-    frame.onerror = () => {
-        document.getElementById('browserLoading').style.display = 'none';
-        alert('Impossibile caricare il sito. Potrebbe bloccare gli iframe.');
-    };
+    // Navigazione diretta — esce dalla PWA e apre Safari/Chrome
+    window.location.href = url;
 }
 
-function closeBrowser() {
-    document.getElementById('browser').style.display = 'none';
-    document.getElementById('browserFrame').src = '';
-    currentSite = null;
+// ── Tab ──────────────────────────────────────────────────
+function showTab(tab) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    const activeTab = document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1));
+    if (activeTab) activeTab.classList.add('active');
+    
+    const sectionTitle = document.getElementById('sectionTitle');
+    if (!sectionTitle) return;
+    
+    switch (tab) {
+        case 'sites':
+            sectionTitle.textContent = 'I MIEI SITI';
+            renderSites();
+            break;
+        case 'favorites':
+            sectionTitle.textContent = 'PREFERITI';
+            renderFavoritesOrHistory('favorites');
+            break;
+        case 'history':
+            sectionTitle.textContent = 'CRONOLOGIA';
+            renderFavoritesOrHistory('history');
+            break;
+    }
 }
 
+function renderFavoritesOrHistory(type) {
+    const siteList = document.getElementById('siteList');
+    const emptyState = document.getElementById('emptyState');
+    const items = type === 'favorites' ? data.favorites : data.history;
+    
+    if (!siteList || !emptyState) return;
+    
+    if (items.length === 0) {
+        siteList.innerHTML = '';
+        emptyState.style.display = 'block';
+        const p = emptyState.querySelector('p:first-child');
+        if (p) p.textContent = type === 'favorites' ? 'Nessun preferito' : 'Nessuna cronologia';
+        return;
+    }
+    
+    emptyState.style.display = 'none';
+    
+    if (type === 'favorites') {
+        siteList.innerHTML = items.map((item, index) => `
+            <div class="list-item" onclick="openSite('${escapeHTML(item.url)}', '${escapeHTML(item.name)}')">
+                <div class="list-item-thumb">★</div>
+                <div class="list-item-info">
+                    <div class="list-item-title">${escapeHTML(item.name)}</div>
+                    <div class="list-item-url">${escapeHTML(item.url.replace('https://','').split('/')[0])}</div>
+                </div>
+                <button class="btn-sm btn-del" onclick="event.stopPropagation(); removeFavorite(${index})" title="Rimuovi">✕</button>
+            </div>
+        `).join('');
+    } else {
+        siteList.innerHTML = items.map(item => `
+            <div class="list-item" onclick="openSite('${escapeHTML(item.url)}', '${escapeHTML(item.name)}')">
+                <div class="list-item-thumb">🕐</div>
+                <div class="list-item-info">
+                    <div class="list-item-title">${escapeHTML(item.name)}</div>
+                    <div class="list-item-url">${escapeHTML(item.time || '')} — ${escapeHTML(item.url.replace('https://','').split('/')[0])}</div>
+                </div>
+            </div>
+        `).join('');
+    }
+}
+
+// ── Preferiti ────────────────────────────────────────────
 function toggleFavorite() {
     if (!currentSite) return;
-    
     const idx = data.favorites.findIndex(f => f.url === currentSite.url);
     if (idx >= 0) {
         data.favorites.splice(idx, 1);
     } else {
-        data.favorites.push({ name: currentSite.name, url: currentSite.url });
+        data.favorites.unshift({ name: currentSite.name, url: currentSite.url });
     }
     saveData(data);
     updateFavIcon();
@@ -126,62 +209,44 @@ function toggleFavorite() {
 
 function updateFavIcon() {
     const btn = document.getElementById('btnFavorite');
-    if (!currentSite) return;
-    const isFav = data.favorites.some(f => f.url === currentSite.url);
-    btn.textContent = isFav ? '★' : '☆';
+    if (!btn || !currentSite) return;
+    btn.textContent = data.favorites.some(f => f.url === currentSite.url) ? '★' : '☆';
 }
 
-// ── Tab ──────────────────────────────────────────────────
-function showTab(tab) {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelector(`.tab:nth-child(${tab === 'sites' ? 1 : tab === 'favorites' ? 2 : 3})`).classList.add('active');
-    
-    const main = document.querySelector('.main');
-    const sectionTitle = main.querySelector('.section-title');
-    const siteList = document.getElementById('siteList');
-    const emptyState = document.getElementById('emptyState');
-    
-    if (tab === 'sites') {
-        sectionTitle.textContent = 'I MIEI SITI';
-        renderSites();
-    } else if (tab === 'favorites') {
-        sectionTitle.textContent = 'PREFERITI';
-        renderList(data.favorites, 'favorites');
-    } else if (tab === 'history') {
-        sectionTitle.textContent = 'CRONOLOGIA';
-        renderList(data.history, 'history');
+function removeFavorite(index) {
+    if (confirm('Rimuovere dai preferiti?')) {
+        data.favorites.splice(index, 1);
+        saveData(data);
+        renderFavoritesOrHistory('favorites');
     }
 }
 
-function renderList(items, type) {
-    const list = document.getElementById('siteList');
-    const empty = document.getElementById('emptyState');
-    
-    if (items.length === 0) {
-        list.innerHTML = '';
-        empty.style.display = 'block';
-        empty.querySelector('p:first-child').textContent = type === 'favorites' ? 'Nessun preferito' : 'Nessuna cronologia';
-        return;
-    }
-    
-    empty.style.display = 'none';
-    list.innerHTML = items.map(item => `
-        <div class="list-item" onclick="openSite('${item.url}', '${item.name}')">
-            <div class="list-item-thumb">${type === 'favorites' ? '★' : '🕐'}</div>
-            <div class="list-item-info">
-                <div class="list-item-title">${item.name}</div>
-                <div class="list-item-url">${item.url.replace('https://','').split('/')[0]}</div>
-            </div>
-        </div>
-    `).join('');
+function closeBrowser() {
+    // Retrocompatibilità
 }
+
+// ── Tasti ────────────────────────────────────────────────
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') hideAddSite();
+    if (e.ctrlKey && e.key === 'n') {
+        e.preventDefault();
+        showAddSite();
+    }
+});
 
 // ── Init ─────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', function() {
     renderSites();
+    window.addEventListener('popstate', function() {
+        hideAddSite();
+    });
 });
 
 // ── Service Worker ───────────────────────────────────────
 if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js');
+    window.addEventListener('load', function() {
+        navigator.serviceWorker.register('sw.js').catch(function(err) {
+            console.log('SW non registrato:', err);
+        });
+    });
 }
