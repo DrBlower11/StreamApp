@@ -12,19 +12,71 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Setup Xcode
-      uses: maxim-lobanov/setup-xcode@v1
-      with:
-        xcode-version: '15.2'
-    
     - name: Build IPA
       run: |
+        # Crea la struttura dell'app
         mkdir -p Payload/StreamHub.app
-        cp StreamHubApp.swift Payload/StreamHub.app/
-        xcodebuild -create-xcframework -output StreamHub.xcframework
         
+        # Crea Info.plist
+        cat > Payload/StreamHub.app/Info.plist << 'EOF'
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>CFBundleDevelopmentRegion</key>
+            <string>it</string>
+            <key>CFBundleDisplayName</key>
+            <string>StreamHub</string>
+            <key>CFBundleExecutable</key>
+            <string>StreamHub</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.streamhub.app</string>
+            <key>CFBundleInfoDictionaryVersion</key>
+            <string>6.0</string>
+            <key>CFBundleName</key>
+            <string>StreamHub</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>1.0</string>
+            <key>CFBundleVersion</key>
+            <string>1</string>
+            <key>LSRequiresIPhoneOS</key>
+            <true/>
+            <key>UILaunchStoryboardName</key>
+            <string>LaunchScreen</string>
+            <key>UIRequiredDeviceCapabilities</key>
+            <array>
+                <string>arm64</string>
+            </array>
+            <key>UISupportedInterfaceOrientations</key>
+            <array>
+                <string>UIInterfaceOrientationPortrait</string>
+                <string>UIInterfaceOrientationLandscapeLeft</string>
+                <string>UIInterfaceOrientationLandscapeRight</string>
+            </array>
+        </dict>
+        </plist>
+        EOF
+        
+        # Compila il binario Swift
+        swiftc -o Payload/StreamHub.app/StreamHub \
+            -sdk $(xcrun --sdk iphoneos --show-sdk-path) \
+            -target arm64-apple-ios16.0 \
+            -framework SwiftUI -framework WebKit \
+            ios/StreamHubApp.swift
+        
+        # Firma ad-hoc (Sideloadly rifirma dopo)
+        codesign -s - --entitlements <(echo '<?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0"><dict><key>com.apple.security.get-task-allow</key><true/></dict></plist>') \
+            Payload/StreamHub.app/StreamHub
+        
+        # Crea IPA
+        zip -r StreamHub.ipa Payload
+    
     - name: Upload IPA
       uses: actions/upload-artifact@v4
       with:
         name: StreamHub.ipa
-        path: "*.ipa"
+        path: StreamHub.ipa
