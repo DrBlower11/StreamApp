@@ -10,7 +10,7 @@ jobs:
     runs-on: macos-latest
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     
     - name: Build IPA
       run: |
@@ -77,7 +77,7 @@ jobs:
             <true/>
         </dict>
         </plist>
-        ENTEOf
+        ENTEOF
         
         # Firma ad-hoc (Sideloadly rifirma dopo)
         codesign -s - --entitlements entitlements.plist \
@@ -87,7 +87,7 @@ jobs:
         zip -r StreamHub.ipa Payload
         
     - name: Upload IPA
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: StreamHub.ipa
         path: StreamHub.ipa
