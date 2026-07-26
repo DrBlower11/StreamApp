@@ -79,23 +79,23 @@ jobs:
             ios/StreamHubApp.swift; then
           echo "swiftc build failed, creating fallback executable"
           cat > Payload/StreamHub.app/StreamHub <<'FALLBACK'
-#!/bin/sh
-printf 'StreamHub placeholder app\n'
-FALLBACK
+            #!/bin/sh
+            printf 'StreamHub placeholder app\n'
+            FALLBACK
           chmod +x Payload/StreamHub.app/StreamHub
         fi
 
         # Crea entitlements per firma ad-hoc
         cat > entitlements.plist <<'ENTEOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>com.apple.security.get-task-allow</key>
-    <true/>
-</dict>
-</plist>
-ENTEOF
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+                <key>com.apple.security.get-task-allow</key>
+                <true/>
+            </dict>
+            </plist>
+            ENTEOF
 
         # Firma ad-hoc (Sideloadly rifirma dopo)
         codesign -s - --entitlements entitlements.plist \
