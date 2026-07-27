@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#000000">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>StreamHub</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23000' width='100' height='100' rx='20'/><text x='50' y='65' text-anchor='middle' fill='%23fff' font-size='40' font-family='Arial'>▶</text></svg>">
+</head>
+<body>
+    <!-- Barra superiore -->
+    <header class="header">
+        <h1 class="logo">StreamHub</h1>
+        <button class="btn-icon" onclick="showAddSite()" title="Aggiungi sito">+</button>
+    </header>
+
+    <!-- Contenuto principale -->
+    <main class="main">
+        <div class="section-title" id="sectionTitle">I MIEI SITI</div>
+        <div id="siteList" class="site-list"></div>
+        <div id="emptyState" class="empty-state">
+            <div class="empty-icon">🎬</div>
+            <p>Nessun sito aggiunto</p>
+            <p class="sub">Clicca + per aggiungere il tuo primo sito streaming</p>
+        </div>
+    </main>
+
+    <!-- Menu inferiore -->
+    <nav class="tabbar">
+        <button class="tab active" id="tabSites" onclick="showTab('sites')">
+            <span class="tab-icon">🏠</span>
+            <span class="tab-label">Home</span>
+        </button>
+        <button class="tab" id="tabFavorites" onclick="showTab('favorites')">
+            <span class="tab-icon">❤️</span>
+            <span class="tab-label">Preferiti</span>
+        </button>
+        <button class="tab" id="tabHistory" onclick="showTab('history')">
+            <span class="tab-icon">🕐</span>
+            <span class="tab-label">Cronologia</span>
+        </button>
+    </nav>
+
+    <!-- Modal aggiungi sito -->
+    <div id="addModal" class="modal" style="display:none">
+        <div class="modal-content">
+            <h2>Aggiungi sito streaming</h2>
+            <input type="text" id="siteName" placeholder="Nome del sito (es. MioStream)" class="input" autocomplete="off">
+            <input type="url" id="siteUrl" placeholder="URL (es. https://miosito.com)" class="input" autocomplete="off">
+            <div class="modal-buttons">
+                <button class="btn btn-cancel" onclick="hideAddSite()">Annulla</button>
+                <button class="btn btn-save" onclick="addSite()">Aggiungi</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Browser interno -->
+    <div id="browser" class="browser" style="display:none">
+        <div class="browser-bar">
+            <button class="btn-back" onclick="closeBrowser()">← Indietro</button>
+            <span id="browserTitle" class="browser-title"></span>
+            <button class="btn-fav" id="btnFavorite" onclick="toggleFavorite()">☆</button>
+        </div>
+        <div id="browserLoading" class="browser-loading">
+            <div class="spinner"></div>
+        </div>
+        <iframe id="browserFrame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation"></iframe>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
