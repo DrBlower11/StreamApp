@@ -19,9 +19,13 @@ jobs:
         # Crea struttura
         mkdir -p Payload/StreamHub.app
 
-        # Copia Info.plist dal repo (evita problemi YAML con heredoc)
+        # Copia Info.plist e LaunchScreen dal repo
         cp ios/Info.plist Payload/StreamHub.app/Info.plist
         plutil -lint Payload/StreamHub.app/Info.plist
+
+        # Copia LaunchScreen.storyboard
+        mkdir -p Payload/StreamHub.app/Base.lproj
+        cp ios/LaunchScreen.storyboard Payload/StreamHub.app/Base.lproj/LaunchScreen.storyboard
 
         # Compila
         SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
@@ -33,22 +37,23 @@ jobs:
           -target arm64-apple-ios16.0 \
           -parse-as-library \
           -framework SwiftUI \
+          -framework UIKit \
           -framework WebKit \
           ios/StreamHubApp.swift
 
         chmod +x Payload/StreamHub.app/StreamHub
         file Payload/StreamHub.app/StreamHub
 
-        # PkgInfo (8 byte esatti)
+        # PkgInfo
         printf 'APPL????' > Payload/StreamHub.app/PkgInfo
 
-        # Firma ad-hoc (obbligatoria per Sideloadly)
+        # Firma ad-hoc
         codesign --force --sign - Payload/StreamHub.app/StreamHub
         codesign --force --deep --sign - Payload/StreamHub.app
         codesign --verify --verbose Payload/StreamHub.app
 
         # Struttura finale
-        find Payload -maxdepth 3 | sort
+        find Payload -maxdepth 4 | sort
 
         # Crea IPA
         ditto -c -k --keepParent Payload StreamHub.ipa
