@@ -33,16 +33,16 @@ async function loadRemoteChannels() {
         }));
 
         const existingUrls = new Set(data.sites.map(site => site.url));
-        const merged = [...data.sites];
+        const added = [];
         remoteSites.forEach(site => {
             if (!existingUrls.has(site.url)) {
-                merged.push(site);
+                data.sites.push(site);
+                added.push(site);
                 existingUrls.add(site.url);
             }
         });
 
-        if (merged.length !== data.sites.length) {
-            data.sites = merged;
+        if (added.length > 0) {
             saveData(data);
             renderSites();
         }
@@ -293,6 +293,7 @@ document.addEventListener('keydown', function(e) {
 document.addEventListener('DOMContentLoaded', function() {
     renderSites();
     loadRemoteChannels();
+    setInterval(loadRemoteChannels, 60000);
     window.addEventListener('popstate', function() {
         hideAddSite();
     });
