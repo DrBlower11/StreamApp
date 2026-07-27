@@ -350,6 +350,7 @@ struct SiteCard: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 14) {
+                // Favicon o fallback
                 AsyncImage(url: site.faviconURL) { phase in
                     if let img = phase.image {
                         img.resizable().scaledToFit()
@@ -594,7 +595,7 @@ class WebViewController: UIViewController {
 
         // Swipe giù per chiudere
         let swipe = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipe))
-        swipe.direction = .down
+        swipe.direction = .left
         view.addGestureRecognizer(swipe)
     }
 
