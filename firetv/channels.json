@@ -1,0 +1,14 @@
+{
+  "channels": [
+    {
+      "name": "Canale Demo",
+      "url": "https://example.com",
+      "category": "Demo"
+    },
+    {
+      "name": "YouTube",
+      "url": "https://www.youtube.com",
+      "category": "Generale"
+    }
+  ]
+}
