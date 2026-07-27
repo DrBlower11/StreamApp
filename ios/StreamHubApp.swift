@@ -10,27 +10,178 @@ struct StreamHubApp: App {
     }
 }
 
+// MARK: - Models
+struct Site: Identifiable, Codable, Equatable {
+    var id = UUID()
+    var name: String
+    var urlString: String
+    var category: String
+    var isFavorite: Bool = false
+    var lastVisited: Date? = nil
+
+    var url: URL? {
+        var str = urlString
+        if !str.hasPrefix("http://") && !str.hasPrefix("https://") {
+            str = "https://" + str
+        }
+        return URL(string: str)
+    }
+
+    var domain: String { url?.host ?? urlString }
+
+    var faviconURL: URL? {
+        guard let host = url?.host else { return nil }
+        return URL(string: "https://www.google.com/s2/favicons?sz=64&domain=\(host)")
+    }
+}
+
+struct HistoryEntry: Identifiable, Codable {
+    var id = UUID()
+    let name: String
+    let urlString: String
+    let date: Date
+    var url: URL? { URL(string: urlString) }
+}
+
+// MARK: - ViewModel
+class SitesViewModel: ObservableObject {
+    @Published var sites: [Site] = []
+    @Published var history: [HistoryEntry] = []
+    @Published var categories: [String] = ["Tutti"]
+
+    private let sitesKey = "sites_data_v2"
+    private let histKey  = "hist_data_v2"
+    private let catsKey  = "cats_data_v2"
+
+    init() { load() }
+
+    // MARK: Sites
+    func addSite(name: String, url: String, category: String) {
+        var urlStr = url
+        if !urlStr.hasPrefix("http://") && !urlStr.hasPrefix("https://") {
+            urlStr = "https://" + urlStr
+        }
+        guard !sites.contains(where: { $0.urlString == urlStr }) else { return }
+        sites.append(Site(name: name, urlString: urlStr, category: category))
+        save()
+    }
+
+    func deleteSite(at offsets: IndexSet, in filtered: [Site]) {
+        let ids = offsets.map { filtered[$0].id }
+        sites.removeAll { ids.contains($0.id) }
+        save()
+    }
+
+    func moveSite(from source: IndexSet, to destination: Int, in filtered: [Site]) {
+        var ids = filtered.map { $0.id }
+        ids.move(fromOffsets: source, toOffset: destination)
+        let order = ids.enumerated().reduce(into: [UUID: Int]()) { $0[$1.element] = $1.offset }
+        sites.sort { (order[$0.id] ?? 0) < (order[$1.id] ?? 0) }
+        save()
+    }
+
+    func markVisited(_ site: Site) {
+        if let idx = sites.firstIndex(where: { $0.id == site.id }) {
+            sites[idx].lastVisited = Date()
+            save()
+        }
+    }
+
+    func toggleFavorite(_ site: Site) {
+        if let idx = sites.firstIndex(where: { $0.id == site.id }) {
+            sites[idx].isFavorite.toggle()
+            save()
+        }
+    }
+
+    var favorites: [Site] { sites.filter { $0.isFavorite } }
+
+    // MARK: History
+    func addToHistory(_ site: Site) {
+        history.insert(HistoryEntry(name: site.name, urlString: site.urlString, date: Date()), at: 0)
+        if history.count > 100 { history.removeLast() }
+        save()
+    }
+
+    func clearHistory() { history.removeAll(); save() }
+
+    // MARK: Categories
+    func addCategory(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, !categories.contains(trimmed) else { return }
+        categories.append(trimmed)
+        save()
+    }
+
+    func deleteCategory(_ name: String) {
+        guard name != "Tutti" else { return }
+        categories.removeAll { $0 == name }
+        sites.indices.forEach { if sites[$0].category == name { sites[$0].category = "Tutti" } }
+        save()
+    }
+
+    // MARK: Persistence
+    private func save() {
+        if let d = try? JSONEncoder().encode(sites)      { UserDefaults.standard.set(d, forKey: sitesKey) }
+        if let d = try? JSONEncoder().encode(history)    { UserDefaults.standard.set(d, forKey: histKey) }
+        if let d = try? JSONEncoder().encode(categories) { UserDefaults.standard.set(d, forKey: catsKey) }
+    }
+
+    private func load() {
+        if let d = UserDefaults.standard.data(forKey: sitesKey),
+           let v = try? JSONDecoder().decode([Site].self, from: d) { sites = v }
+        if let d = UserDefaults.standard.data(forKey: histKey),
+           let v = try? JSONDecoder().decode([HistoryEntry].self, from: d) { history = v }
+        if let d = UserDefaults.standard.data(forKey: catsKey),
+           let v = try? JSONDecoder().decode([String].self, from: d) {
+            categories = v
+        } else {
+            categories = ["Tutti"]
+        }
+    }
+}
+
 // MARK: - ContentView
 struct ContentView: View {
     @StateObject private var sitesVM = SitesViewModel()
-    @State private var showingAddSheet = false
-    @State private var selectedURL: URL? = nil
-    @State private var showBrowser = false
-    @State private var showFavorites = false
-    @State private var showHistory = false
-    
+    @State private var showingAddSheet  = false
+    @State private var selectedSite: Site? = nil
+    @State private var showBrowser      = false
+    @State private var showFavorites    = false
+    @State private var showHistory      = false
+    @State private var searchText       = ""
+    @State private var selectedCategory = "Tutti"
+    @State private var editMode: EditMode = .inactive
+
+    var filteredSites: [Site] {
+        sites(in: selectedCategory).filter {
+            searchText.isEmpty ||
+            $0.name.localizedCaseInsensitiveContains(searchText) ||
+            $0.domain.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    func sites(in category: String) -> [Site] {
+        category == "Tutti" ? sitesVM.sites : sitesVM.sites.filter { $0.category == category }
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
                 Color.black.ignoresSafeArea()
-                
                 VStack(spacing: 0) {
+
                     // Header
                     HStack {
                         Text("StreamHub")
                             .font(.system(size: 28, weight: .black, design: .rounded))
                             .foregroundColor(.white)
                         Spacer()
+                        Button(action: { editMode = editMode == .active ? .inactive : .active }) {
+                            Image(systemName: editMode == .active ? "checkmark.circle.fill" : "arrow.up.arrow.down.circle")
+                                .font(.system(size: 24))
+                                .foregroundColor(editMode == .active ? .green : .gray)
+                        }
                         Button(action: { showingAddSheet = true }) {
                             Image(systemName: "plus.circle.fill")
                                 .font(.system(size: 26))
@@ -39,50 +190,85 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 8)
-                    .padding(.bottom, 16)
-                    
-                    // Siti
+                    .padding(.bottom, 8)
+
+                    // Search bar
+                    HStack {
+                        Image(systemName: "magnifyingglass").foregroundColor(.gray)
+                        TextField("Cerca siti...", text: $searchText)
+                            .foregroundColor(.white)
+                            .autocapitalization(.none)
+                        if !searchText.isEmpty {
+                            Button(action: { searchText = "" }) {
+                                Image(systemName: "xmark.circle.fill").foregroundColor(.gray)
+                            }
+                        }
+                    }
+                    .padding(10)
+                    .background(Color.white.opacity(0.08))
+                    .cornerRadius(12)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+
+                    // Category pills
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(sitesVM.categories, id: \.self) { cat in
+                                CategoryPill(title: cat, isSelected: selectedCategory == cat) {
+                                    selectedCategory = cat
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                    .padding(.bottom, 8)
+
+                    // Sites list
                     if sitesVM.sites.isEmpty {
                         Spacer()
                         VStack(spacing: 16) {
-                            Text("🎬")
-                                .font(.system(size: 60))
+                            Text("🎬").font(.system(size: 60))
                             Text("Nessun sito aggiunto")
-                                .font(.title3)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.white)
+                                .font(.title3).fontWeight(.semibold).foregroundColor(.white)
                             Text("Clicca + per aggiungere il tuo primo sito streaming")
-                                .font(.subheadline)
-                                .foregroundColor(.gray)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 40)
+                                .font(.subheadline).foregroundColor(.gray)
+                                .multilineTextAlignment(.center).padding(.horizontal, 40)
                         }
                         Spacer()
+                    } else if filteredSites.isEmpty {
+                        Spacer()
+                        Text("Nessun risultato").foregroundColor(.gray)
+                        Spacer()
                     } else {
-                        ScrollView {
-                            LazyVStack(spacing: 12) {
-                                SectionHeader(title: "I MIEI SITI")
-                                ForEach(Array(sitesVM.sites.enumerated()), id: \.offset) { index, site in
-                                    SiteCard(site: site) {
-                                        selectedURL = site.url
-                                        showBrowser = true
-                                        sitesVM.addToHistory(site)
-                                    } onDelete: {
-                                        sitesVM.deleteSite(at: index)
-                                    }
+                        List {
+                            ForEach(filteredSites) { site in
+                                SiteCard(site: site, isFavorite: sitesVM.isFavorite(site)) {
+                                    selectedSite = site
+                                    sitesVM.markVisited(site)
+                                    sitesVM.addToHistory(site)
+                                    showBrowser = true
+                                } onToggleFavorite: {
+                                    sitesVM.toggleFavorite(site)
                                 }
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                             }
-                            .padding(.horizontal, 16)
+                            .onDelete { offsets in sitesVM.deleteSite(at: offsets, in: filteredSites) }
+                            .onMove  { src, dst in sitesVM.moveSite(from: src, to: dst, in: filteredSites) }
                         }
+                        .listStyle(.plain)
+                        .scrollContentBackground(.hidden)
+                        .environment(\.editMode, $editMode)
                     }
-                    
+
                     Spacer(minLength: 0)
-                    
+
                     // Tab Bar
                     HStack(spacing: 0) {
-                        TabBarButton(icon: "house.fill", label: "Home", isActive: true)
-                        TabBarButton(icon: "heart.fill", label: "Preferiti") { showFavorites = true }
-                        TabBarButton(icon: "clock.fill", label: "Cronologia") { showHistory = true }
+                        TabBarButton(icon: "house.fill",  label: "Home",       isActive: true)
+                        TabBarButton(icon: "heart.fill",  label: "Preferiti")  { showFavorites = true }
+                        TabBarButton(icon: "clock.fill",  label: "Cronologia") { showHistory   = true }
                     }
                     .padding(.vertical, 10)
                     .padding(.bottom, 20)
@@ -94,28 +280,34 @@ struct ContentView: View {
                 AddSiteView(sitesVM: sitesVM)
             }
             .fullScreenCover(isPresented: $showBrowser) {
-                if let url = selectedURL {
-                    BrowserView(
-                        url: url,
-                        siteName: sitesVM.sites.first(where: { $0.url == url })?.name ?? ""
-                    )
+                if let site = selectedSite, let url = site.url {
+                    BrowserView(url: url)
                 }
             }
             .sheet(isPresented: $showFavorites) {
-                FavoritesView(sitesVM: sitesVM) { url in
+                FavoritesView(sitesVM: sitesVM) { site in
                     showFavorites = false
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        selectedURL = url
+                        selectedSite = site
+                        sitesVM.markVisited(site)
+                        sitesVM.addToHistory(site)
                         showBrowser = true
                     }
                 }
             }
             .sheet(isPresented: $showHistory) {
-                HistoryView(sitesVM: sitesVM) { url in
+                HistoryView(sitesVM: sitesVM) { urlString in
                     showHistory = false
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        selectedURL = url
-                        showBrowser = true
+                        if let site = sitesVM.sites.first(where: { $0.urlString == urlString }),
+                           site.url != nil {
+                            selectedSite = site
+                            sitesVM.markVisited(site)
+                            showBrowser = true
+                        } else if let url = URL(string: urlString) {
+                            selectedSite = Site(name: urlString, urlString: urlString, category: "Tutti")
+                            showBrowser = true
+                        }
                     }
                 }
             }
@@ -124,125 +316,26 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Site Model
-struct Site: Identifiable, Codable, Equatable {
-    var id = UUID()
-    let name: String
-    let urlString: String
-    
-    var url: URL? {
-        var str = urlString
-        if !str.hasPrefix("http://") && !str.hasPrefix("https://") {
-            str = "https://" + str
-        }
-        return URL(string: str)
-    }
-    
-    var domain: String {
-        url?.host ?? urlString
-    }
+// MARK: - Helpers
+extension SitesViewModel {
+    func isFavorite(_ site: Site) -> Bool { site.isFavorite }
 }
 
-struct HistoryEntry: Identifiable, Codable {
-    var id = UUID()
-    let name: String
-    let urlString: String
-    let date: Date
-    
-    var url: URL? { URL(string: urlString) }
-}
+// MARK: - Category Pill
+struct CategoryPill: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
 
-// MARK: - ViewModel
-class SitesViewModel: ObservableObject {
-    @Published var sites: [Site] = []
-    @Published var favorites: [Site] = []
-    @Published var history: [HistoryEntry] = []
-    
-    private let sitesKey = "sites_data"
-    private let favsKey = "favs_data"
-    private let histKey = "hist_data"
-    
-    init() {
-        loadSites()
-        loadFavorites()
-        loadHistory()
-    }
-    
-    func addSite(name: String, url: String) {
-        var urlStr = url
-        if !urlStr.hasPrefix("http://") && !urlStr.hasPrefix("https://") {
-            urlStr = "https://" + urlStr
-        }
-        guard !sites.contains(where: { $0.urlString == urlStr }) else { return }
-        sites.append(Site(name: name, urlString: urlStr))
-        saveSites()
-    }
-    
-    func deleteSite(at index: Int) {
-        sites.remove(at: index)
-        saveSites()
-    }
-    
-    func addToHistory(_ site: Site) {
-        history.insert(HistoryEntry(name: site.name, urlString: site.urlString, date: Date()), at: 0)
-        if history.count > 100 { history.removeLast() }
-        saveHistory()
-    }
-    
-    func toggleFavorite(_ site: Site) {
-        if let idx = favorites.firstIndex(where: { $0.urlString == site.urlString }) {
-            favorites.remove(at: idx)
-        } else {
-            favorites.insert(site, at: 0)
-        }
-        saveFavorites()
-    }
-    
-    func removeFavorite(at index: Int) {
-        favorites.remove(at: index)
-        saveFavorites()
-    }
-    
-    func isFavorite(_ site: Site) -> Bool {
-        favorites.contains(where: { $0.urlString == site.urlString })
-    }
-    
-    private func saveSites() {
-        if let data = try? JSONEncoder().encode(sites) {
-            UserDefaults.standard.set(data, forKey: sitesKey)
-        }
-    }
-    
-    private func loadSites() {
-        if let data = UserDefaults.standard.data(forKey: sitesKey),
-           let loaded = try? JSONDecoder().decode([Site].self, from: data) {
-            sites = loaded
-        }
-    }
-    
-    private func saveFavorites() {
-        if let data = try? JSONEncoder().encode(favorites) {
-            UserDefaults.standard.set(data, forKey: favsKey)
-        }
-    }
-    
-    private func loadFavorites() {
-        if let data = UserDefaults.standard.data(forKey: favsKey),
-           let loaded = try? JSONDecoder().decode([Site].self, from: data) {
-            favorites = loaded
-        }
-    }
-    
-    private func saveHistory() {
-        if let data = try? JSONEncoder().encode(history) {
-            UserDefaults.standard.set(data, forKey: histKey)
-        }
-    }
-    
-    private func loadHistory() {
-        if let data = UserDefaults.standard.data(forKey: histKey),
-           let loaded = try? JSONDecoder().decode([HistoryEntry].self, from: data) {
-            history = loaded
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(isSelected ? .black : .white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(isSelected ? Color.white : Color.white.opacity(0.1))
+                .cornerRadius(20)
         }
     }
 }
@@ -250,44 +343,74 @@ class SitesViewModel: ObservableObject {
 // MARK: - Site Card
 struct SiteCard: View {
     let site: Site
+    let isFavorite: Bool
     let onTap: () -> Void
-    let onDelete: () -> Void
-    
+    let onToggleFavorite: () -> Void
+
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 14) {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(LinearGradient(
-                        colors: [Color.blue.opacity(0.6), Color.purple.opacity(0.4)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ))
-                    .frame(width: 50, height: 50)
-                    .overlay(Text("🎬").font(.title2))
-                
+                AsyncImage(url: site.faviconURL) { phase in
+                    if let img = phase.image {
+                        img.resizable().scaledToFit()
+                    } else {
+                        Image(systemName: "play.rectangle.fill")
+                            .font(.system(size: 22))
+                            .foregroundColor(.blue)
+                    }
+                }
+                .frame(width: 40, height: 40)
+                .background(Color.white.opacity(0.08))
+                .cornerRadius(10)
+
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(site.name)
-                        .font(.headline)
-                        .foregroundColor(.white)
-                    Text(site.domain)
-                        .font(.caption)
-                        .foregroundColor(.gray)
+                    HStack(spacing: 6) {
+                        Text(site.name)
+                            .font(.headline).foregroundColor(.white)
+                        if let visited = site.lastVisited {
+                            Text(relativeTime(visited))
+                                .font(.caption2)
+                                .foregroundColor(.blue)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Color.blue.opacity(0.15))
+                                .cornerRadius(6)
+                        }
+                    }
+                    HStack(spacing: 4) {
+                        Text(site.category)
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(Color.white.opacity(0.06))
+                            .cornerRadius(4)
+                        Text(site.domain)
+                            .font(.caption).foregroundColor(.gray)
+                    }
                 }
-                
+
                 Spacer()
-                
-                Button(action: onDelete) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title3)
-                        .foregroundColor(.red.opacity(0.7))
+
+                Button(action: onToggleFavorite) {
+                    Image(systemName: isFavorite ? "heart.fill" : "heart")
+                        .font(.system(size: 18))
+                        .foregroundColor(isFavorite ? .red : .gray)
                 }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .padding(.vertical, 12)
             .background(Color.white.opacity(0.06))
             .cornerRadius(16)
         }
         .buttonStyle(.plain)
+    }
+
+    func relativeTime(_ date: Date) -> String {
+        let diff = Int(Date().timeIntervalSince(date))
+        if diff < 60 { return "ora" }
+        if diff < 3600 { return "\(diff/60)m fa" }
+        if diff < 86400 { return "\(diff/3600)h fa" }
+        return "\(diff/86400)g fa"
     }
 }
 
@@ -297,14 +420,11 @@ struct SectionHeader: View {
     var body: some View {
         HStack {
             Text(title)
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundColor(.gray)
-                .textCase(.uppercase)
+                .font(.caption).fontWeight(.semibold)
+                .foregroundColor(.gray).textCase(.uppercase)
             Spacer()
         }
-        .padding(.top, 8)
-        .padding(.horizontal, 4)
+        .padding(.top, 8).padding(.horizontal, 4)
     }
 }
 
@@ -314,14 +434,12 @@ struct TabBarButton: View {
     let label: String
     var isActive: Bool = false
     var action: (() -> Void)? = nil
-    
+
     var body: some View {
         Button(action: { action?() }) {
             VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 20))
-                Text(label)
-                    .font(.system(size: 10))
+                Image(systemName: icon).font(.system(size: 20))
+                Text(label).font(.system(size: 10))
             }
             .foregroundColor(isActive ? .blue : .gray)
             .frame(maxWidth: .infinity)
@@ -334,47 +452,74 @@ struct AddSiteView: View {
     @ObservedObject var sitesVM: SitesViewModel
     @Environment(\.dismiss) var dismiss
     @State private var name = ""
-    @State private var url = ""
-    
+    @State private var url  = ""
+    @State private var selectedCategory = "Tutti"
+    @State private var newCategory = ""
+    @State private var showCategoryField = false
+
     var body: some View {
         NavigationStack {
             ZStack {
                 Color.black.ignoresSafeArea()
-                VStack(spacing: 20) {
-                    TextField("Nome del sito", text: $name)
-                        .padding()
-                        .background(Color.white.opacity(0.1))
-                        .cornerRadius(12)
-                        .foregroundColor(.white)
-                    
-                    TextField("URL (es. https://miosito.com)", text: $url)
-                        .padding()
-                        .background(Color.white.opacity(0.1))
-                        .cornerRadius(12)
-                        .foregroundColor(.white)
-                        .keyboardType(.URL)
-                        .autocapitalization(.none)
-                    
-                    Button(action: {
-                        if !name.isEmpty && !url.isEmpty {
-                            sitesVM.addSite(name: name, url: url)
-                            dismiss()
+                ScrollView {
+                    VStack(spacing: 16) {
+                        TextField("Nome del sito", text: $name)
+                            .padding().background(Color.white.opacity(0.1))
+                            .cornerRadius(12).foregroundColor(.white)
+
+                        TextField("URL (es. https://miosito.com)", text: $url)
+                            .padding().background(Color.white.opacity(0.1))
+                            .cornerRadius(12).foregroundColor(.white)
+                            .keyboardType(.URL).autocapitalization(.none)
+
+                        // Categoria
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Categoria").font(.caption).foregroundColor(.gray)
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(sitesVM.categories, id: \.self) { cat in
+                                        CategoryPill(title: cat, isSelected: selectedCategory == cat) {
+                                            selectedCategory = cat
+                                        }
+                                    }
+                                    Button(action: { showCategoryField.toggle() }) {
+                                        Image(systemName: "plus.circle")
+                                            .foregroundColor(.blue).font(.system(size: 22))
+                                    }
+                                }
+                            }
+                            if showCategoryField {
+                                HStack {
+                                    TextField("Nuova categoria", text: $newCategory)
+                                        .padding(8).background(Color.white.opacity(0.1))
+                                        .cornerRadius(8).foregroundColor(.white)
+                                    Button("Aggiungi") {
+                                        sitesVM.addCategory(newCategory)
+                                        selectedCategory = newCategory
+                                        newCategory = ""
+                                        showCategoryField = false
+                                    }
+                                    .foregroundColor(.blue)
+                                }
+                            }
                         }
-                    }) {
-                        Text("Aggiungi")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.blue)
-                            .cornerRadius(12)
+
+                        Button(action: {
+                            if !name.isEmpty && !url.isEmpty {
+                                sitesVM.addSite(name: name, url: url, category: selectedCategory)
+                                dismiss()
+                            }
+                        }) {
+                            Text("Aggiungi")
+                                .font(.headline).foregroundColor(.white)
+                                .frame(maxWidth: .infinity).padding()
+                                .background(Color.blue).cornerRadius(12)
+                        }
+                        .disabled(name.isEmpty || url.isEmpty)
+                        .opacity(name.isEmpty || url.isEmpty ? 0.5 : 1)
                     }
-                    .disabled(name.isEmpty || url.isEmpty)
-                    .opacity(name.isEmpty || url.isEmpty ? 0.5 : 1)
-                    
-                    Spacer()
+                    .padding()
                 }
-                .padding()
             }
             .navigationTitle("Aggiungi sito")
             .navigationBarTitleDisplayMode(.inline)
@@ -388,51 +533,43 @@ struct AddSiteView: View {
     }
 }
 
-// MARK: - Browser View
+// MARK: - Browser View (fullscreen, nessun controllo)
 struct BrowserView: View {
     let url: URL
-    let siteName: String
     @Environment(\.dismiss) var dismiss
 
     var body: some View {
-        FullScreenWebView(url: url, siteName: siteName, onDismiss: { dismiss() })
+        FullScreenWebView(url: url, onDismiss: { dismiss() })
             .ignoresSafeArea()
     }
 }
 
-// MARK: - FullScreen Web View (UIViewControllerRepresentable)
 struct FullScreenWebView: UIViewControllerRepresentable {
     let url: URL
-    let siteName: String
     let onDismiss: () -> Void
 
     func makeUIViewController(context: Context) -> WebViewController {
-        WebViewController(url: url, siteName: siteName, onDismiss: onDismiss)
+        WebViewController(url: url, onDismiss: onDismiss)
     }
-
     func updateUIViewController(_ vc: WebViewController, context: Context) {}
 }
 
 class WebViewController: UIViewController {
     private let url: URL
-    private let siteName: String
     private let onDismiss: () -> Void
     private var webView: WKWebView!
 
-    init(url: URL, siteName: String, onDismiss: @escaping () -> Void) {
+    init(url: URL, onDismiss: @escaping () -> Void) {
         self.url = url
-        self.siteName = siteName
         self.onDismiss = onDismiss
         super.init(nibName: nil, bundle: nil)
     }
-
     required init?(coder: NSCoder) { fatalError() }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
 
-        // WebView
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
@@ -446,7 +583,6 @@ class WebViewController: UIViewController {
         webView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(webView)
 
-        // WebView a tutto schermo — agganciato ai bordi del UIViewController (non safe area)
         NSLayoutConstraint.activate([
             webView.topAnchor.constraint(equalTo: view.topAnchor),
             webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -456,72 +592,23 @@ class WebViewController: UIViewController {
 
         webView.load(URLRequest(url: url))
 
-        // Gradiente scuro in cima
-        let gradientView = UIView()
-        gradientView.translatesAutoresizingMaskIntoConstraints = false
-        gradientView.isUserInteractionEnabled = false
-        view.addSubview(gradientView)
-        NSLayoutConstraint.activate([
-            gradientView.topAnchor.constraint(equalTo: view.topAnchor),
-            gradientView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            gradientView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            gradientView.heightAnchor.constraint(equalToConstant: 110)
-        ])
-        let gradient = CAGradientLayer()
-        gradient.colors = [UIColor.black.withAlphaComponent(0.65).cgColor, UIColor.clear.cgColor]
-        gradient.frame = CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 110)
-        gradientView.layer.addSublayer(gradient)
-
-        // Safe area top (Dynamic Island / notch)
-        let topPad = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first?.windows.first?.safeAreaInsets.top ?? 47
-
-        // Bottone indietro
-        let backBtn = UIButton(type: .system)
-        backBtn.setImage(
-            UIImage(systemName: "chevron.left.circle.fill",
-                    withConfiguration: UIImage.SymbolConfiguration(pointSize: 30)),
-            for: .normal
-        )
-        backBtn.tintColor = .white
-        backBtn.translatesAutoresizingMaskIntoConstraints = false
-        backBtn.addTarget(self, action: #selector(dismissTapped), for: .touchUpInside)
-        view.addSubview(backBtn)
-
-        // Bottone Safari
-        let safariBtn = UIButton(type: .system)
-        safariBtn.setImage(
-            UIImage(systemName: "safari.fill",
-                    withConfiguration: UIImage.SymbolConfiguration(pointSize: 26)),
-            for: .normal
-        )
-        safariBtn.tintColor = .white
-        safariBtn.translatesAutoresizingMaskIntoConstraints = false
-        safariBtn.addTarget(self, action: #selector(openSafari), for: .touchUpInside)
-        view.addSubview(safariBtn)
-
-        NSLayoutConstraint.activate([
-            backBtn.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            backBtn.topAnchor.constraint(equalTo: view.topAnchor, constant: topPad + 8),
-            safariBtn.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            safariBtn.topAnchor.constraint(equalTo: view.topAnchor, constant: topPad + 10)
-        ])
+        // Swipe giù per chiudere
+        let swipe = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipe))
+        swipe.direction = .down
+        view.addGestureRecognizer(swipe)
     }
 
-    @objc private func dismissTapped() { onDismiss() }
-    @objc private func openSafari() { UIApplication.shared.open(url) }
+    @objc private func handleSwipe() { onDismiss() }
 
-    override var prefersStatusBarHidden: Bool { false }
-    override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
+    override var prefersStatusBarHidden: Bool { true }
 }
 
 // MARK: - Favorites View
 struct FavoritesView: View {
     @ObservedObject var sitesVM: SitesViewModel
-    let onSelect: (URL) -> Void
+    let onSelect: (Site) -> Void
     @Environment(\.dismiss) var dismiss
-    
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -533,21 +620,35 @@ struct FavoritesView: View {
                     }
                 } else {
                     List {
-                        ForEach(Array(sitesVM.favorites.enumerated()), id: \.offset) { index, site in
-                            Button(action: {
-                                if let url = site.url { onSelect(url) }
-                            }) {
-                                HStack {
-                                    Text("★").font(.title3)
+                        ForEach(sitesVM.favorites) { site in
+                            Button(action: { onSelect(site) }) {
+                                HStack(spacing: 12) {
+                                    AsyncImage(url: site.faviconURL) { phase in
+                                        if let img = phase.image {
+                                            img.resizable().scaledToFit()
+                                        } else {
+                                            Image(systemName: "play.rectangle.fill")
+                                                .foregroundColor(.blue)
+                                        }
+                                    }
+                                    .frame(width: 32, height: 32)
+                                    .background(Color.white.opacity(0.08))
+                                    .cornerRadius(8)
+
                                     VStack(alignment: .leading) {
                                         Text(site.name).foregroundColor(.white)
                                         Text(site.domain).font(.caption).foregroundColor(.gray)
                                     }
+                                    Spacer()
+                                    Button(action: { sitesVM.toggleFavorite(site) }) {
+                                        Image(systemName: "heart.fill")
+                                            .foregroundColor(.red)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
-                            .swipeActions {
-                                Button("Rimuovi") { sitesVM.removeFavorite(at: index) }.tint(.red)
-                            }
+                            .listRowBackground(Color.white.opacity(0.05))
+                            .listRowSeparator(.hidden)
                         }
                     }
                     .listStyle(.plain)
@@ -557,9 +658,7 @@ struct FavoritesView: View {
             .navigationTitle("Preferiti")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Chiudi") { dismiss() }
-                }
+                ToolbarItem(placement: .cancellationAction) { Button("Chiudi") { dismiss() } }
             }
         }
         .preferredColorScheme(.dark)
@@ -569,9 +668,9 @@ struct FavoritesView: View {
 // MARK: - History View
 struct HistoryView: View {
     @ObservedObject var sitesVM: SitesViewModel
-    let onSelect: (URL) -> Void
+    let onSelect: (String) -> Void
     @Environment(\.dismiss) var dismiss
-    
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -583,11 +682,9 @@ struct HistoryView: View {
                     }
                 } else {
                     List(sitesVM.history) { entry in
-                        Button(action: {
-                            if let url = entry.url { onSelect(url) }
-                        }) {
+                        Button(action: { onSelect(entry.urlString) }) {
                             HStack {
-                                Text("🕐").font(.title3)
+                                Image(systemName: "clock").foregroundColor(.gray)
                                 VStack(alignment: .leading) {
                                     Text(entry.name).foregroundColor(.white)
                                     Text(entry.date.formatted(date: .abbreviated, time: .shortened))
@@ -595,6 +692,8 @@ struct HistoryView: View {
                                 }
                             }
                         }
+                        .listRowBackground(Color.white.opacity(0.05))
+                        .listRowSeparator(.hidden)
                     }
                     .listStyle(.plain)
                     .scrollContentBackground(.hidden)
@@ -603,8 +702,10 @@ struct HistoryView: View {
             .navigationTitle("Cronologia")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Chiudi") { dismiss() }
+                ToolbarItem(placement: .cancellationAction) { Button("Chiudi") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Cancella tutto") { sitesVM.clearHistory() }
+                        .foregroundColor(.red)
                 }
             }
         }
